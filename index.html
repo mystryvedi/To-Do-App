@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Progress Board</title>
+  <title>Kanban Board</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -28,13 +28,13 @@
       background: rgba(0, 0, 0, 0.5);
     }
     .task-card {
-      transition: background-color 0.3s ease;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
     }
-    .dark-mode .task-card {
+    .dark .task-card {
       background-color: #374151;
       border-color: #4b5563;
     }
-    .light-mode .task-card {
+    .light .task-card {
       background-color: #ffffff;
       border-color: #e5e7eb;
     }
@@ -65,7 +65,7 @@
     };
   </script>
 </head>
-<body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+<body class="bg-gray-100 transition-colors duration-300">
   <div id="root"></div>
 
   <script type="text/babel">
@@ -112,6 +112,7 @@
         try {
           if (!Object.keys(firebaseConfig).length) {
             console.error("Firebase config is missing. Please check your environment variables.");
+            setMessage("Firebase configuration is missing.");
             return;
           }
           const app = initializeApp(firebaseConfig);
@@ -186,8 +187,8 @@
 
       const handleAddTodo = async () => {
         if (newTodo.trim() === '') return;
-        if (!db || !userId) {
-          setMessage("Database not ready. Please wait.");
+        if (!isAuthReady) {
+          setMessage("Please wait for authentication to complete.");
           return;
         }
         
@@ -209,8 +210,8 @@
       };
 
       const handleUpdateTodoStatus = async (id, newStatus) => {
-        if (!db || !userId) {
-          setMessage("Database not ready. Please wait.");
+        if (!isAuthReady) {
+          setMessage("Please wait for authentication to complete.");
           return;
         }
 
@@ -227,8 +228,8 @@
       };
 
       const handleDeleteTodo = async (id) => {
-        if (!db || !userId) {
-          setMessage("Database not ready. Please wait.");
+        if (!isAuthReady) {
+          setMessage("Please wait for authentication to complete.");
           return;
         }
 
@@ -254,8 +255,8 @@
           setEditingTodoId(null);
           return;
         }
-        if (!db || !userId) {
-          setMessage("Database not ready. Please wait.");
+        if (!isAuthReady) {
+          setMessage("Please wait for authentication to complete.");
           return;
         }
 
@@ -273,7 +274,7 @@
       };
 
       const handlePublicSwitch = () => {
-        if (!userId) {
+        if (!isAuthReady) {
           setMessage("Please wait for authentication to complete.");
           return;
         }
@@ -285,7 +286,7 @@
       };
 
       const headerClasses = 'text-xl font-bold mb-4';
-      const inputClasses = 'w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500';
+      const inputClasses = 'w-full p-3 rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500';
       const cardClasses = 'p-4 rounded-lg shadow-md';
 
       return (
@@ -298,7 +299,7 @@
               <div className="flex items-center space-x-4">
                 <button
                   onClick={handleThemeToggle}
-                  className="p-2 rounded-full text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors duration-200"
+                  className={`p-2 rounded-full ${isDarkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-200'} transition-colors duration-200`}
                   title="Toggle theme"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -353,56 +354,62 @@
             {message && <p className={`text-center mb-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>{message}</p>}
 
             {/* Kanban columns */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {columns.map(column => (
-                <div key={column.id} className={`p-4 rounded-xl ${isDarkMode ? column.darkColor : column.lightColor}`}>
-                  <h2 className={`${headerClasses} ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{column.title}</h2>
-                  <div className="space-y-4 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-                    {todos.filter(todo => todo.status === column.id).map(todo => (
-                      <div key={todo.id} className={`${cardClasses} ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}`}>
-                        {editingTodoId === todo.id ? (
-                          <input
-                            type="text"
-                            value={editingTodoText}
-                            onChange={(e) => setEditingTodoText(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
-                            className={inputClasses}
-                            autoFocus
-                          />
-                        ) : (
-                          <p className={`text-gray-800 dark:text-gray-200 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{todo.text}</p>
-                        )}
-                        
-                        <div className="flex justify-end space-x-2 mt-4">
+            {isAuthReady ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {columns.map(column => (
+                  <div key={column.id} className={`p-4 rounded-xl ${isDarkMode ? column.darkColor : column.lightColor}`}>
+                    <h2 className={`${headerClasses} ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{column.title}</h2>
+                    <div className="space-y-4 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                      {todos.filter(todo => todo.status === column.id).map(todo => (
+                        <div key={todo.id} className={`${cardClasses} ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}`}>
                           {editingTodoId === todo.id ? (
-                            <button onClick={handleEditSave} className="p-2 text-green-500 hover:text-green-600">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                            </button>
+                            <input
+                              type="text"
+                              value={editingTodoText}
+                              onChange={(e) => setEditingTodoText(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
+                              className={inputClasses}
+                              autoFocus
+                            />
                           ) : (
-                            <>
-                              <button onClick={() => handleEditStart(todo)} className="p-2 text-yellow-500 hover:text-yellow-600">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828zM15 11l-2 2h-4v-4l2-2 4 4z" /></svg>
-                              </button>
-                              <button onClick={() => handleDeleteTodo(todo.id)} className="p-2 text-red-500 hover:text-red-600">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                              </button>
-                              {column.id !== 'completed' && (
-                                <button onClick={() => handleUpdateTodoStatus(todo.id, 'completed')} className="p-2 text-blue-500 hover:text-blue-600">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4a1 1 0 000-1.414z" clipRule="evenodd" /></svg>
-                                </button>
-                              )}
-                            </>
+                            <p className={`text-gray-800 dark:text-gray-200 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{todo.text}</p>
                           )}
+                          
+                          <div className="flex justify-end space-x-2 mt-4">
+                            {editingTodoId === todo.id ? (
+                              <button onClick={handleEditSave} className="p-2 text-green-500 hover:text-green-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                              </button>
+                            ) : (
+                              <>
+                                <button onClick={() => handleEditStart(todo)} className="p-2 text-yellow-500 hover:text-yellow-600">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828zM15 11l-2 2h-4v-4l2-2 4 4z" /></svg>
+                                </button>
+                                <button onClick={() => handleDeleteTodo(todo.id)} className="p-2 text-red-500 hover:text-red-600">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                </button>
+                                {column.id !== 'completed' && (
+                                  <button onClick={() => handleUpdateTodoStatus(todo.id, 'completed')} className="p-2 text-blue-500 hover:text-blue-600">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4a1 1 0 000-1.414z" clipRule="evenodd" /></svg>
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {todos.filter(todo => todo.status === column.id).length === 0 && (
-                      <p className={`text-center text-sm ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>No tasks in this column.</p>
-                    )}
+                      ))}
+                      {todos.filter(todo => todo.status === column.id).length === 0 && (
+                        <p className={`text-center text-sm ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>No tasks in this column.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-lg font-bold text-gray-700 dark:text-gray-300">
+                Please wait while the app connects to the database...
+              </p>
+            )}
           </div>
         </div>
       );
