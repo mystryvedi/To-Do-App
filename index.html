@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanban Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 8px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      transition: background 0.3s ease;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 0, 0, 0.5);
+    }
+  </style>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Firebase Imports -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot, updateDoc, deleteDoc, doc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    window.firebase = {
+      initializeApp,
+      getAuth,
+      signInWithCustomToken,
+      signInAnonymously,
+      onAuthStateChanged,
+      getFirestore,
+      collection,
+      addDoc,
+      onSnapshot,
+      updateDoc,
+      deleteDoc,
+      doc,
+      query,
+    };
+  </script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getFirestore, collection, addDoc, onSnapshot, updateDoc, deleteDoc, doc, query } = window.firebase;
+
+    // IMPORTANT: These global variables are provided by the canvas environment.
+    // DO NOT MODIFY them.
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    // Main App component for the Kanban board
+    const App = () => {
+      const [db, setDb] = useState(null);
+      const [auth, setAuth] = useState(null);
+      const [userId, setUserId] = useState(null);
+      const [isAuthReady, setIsAuthReady] = useState(false);
+
+      const [todos, setTodos] = useState([]);
+      const [newTodo, setNewTodo] = useState('');
+      const [editingTodoId, setEditingTodoId] = useState(null);
+      const [editingTodoText, setEditingTodoText] = useState('');
+      const [message, setMessage] = useState('');
+      const [isPublic, setIsPublic] = useState(false);
+
+      const columns = [
+        { id: 'new', title: 'New Task', bgColor: 'bg-blue-500' },
+        { id: 'in_progress', title: 'In Progress', bgColor: 'bg-yellow-500' },
+        { id: 'completed', title: 'Completed', bgColor: 'bg-green-500' },
+      ];
+
+      // Initialize Firebase and set up authentication
+      useEffect(() => {
+        try {
+          if (!Object.keys(firebaseConfig).length) {
+            console.error("Firebase config is missing. Please check your environment variables.");
+            return;
+          }
+          const app = initializeApp(firebaseConfig);
+          const auth = getAuth(app);
+          const db = getFirestore(app);
+
+          const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+            if (user) {
+              setUserId(user.uid);
+              setIsAuthReady(true);
+            } else {
+              await signInAnonymously(auth);
+            }
+          });
+          
+          setDb(db);
+          setAuth(auth);
+
+          return () => unsubscribeAuth();
+        } catch (error) {
+          console.error("Error initializing Firebase:", error);
+          setMessage("Error initializing the app. Check the console.");
+        }
+      }, []);
+
+      // Handle custom auth token sign-in
+      useEffect(() => {
+        const handleSignIn = async () => {
+          if (auth && initialAuthToken) {
+            try {
+              await signInWithCustomToken(auth, initialAuthToken);
+            } catch (error) {
+              console.error("Error signing in with custom token:", error);
+              if (auth.currentUser === null) {
+                await signInAnonymously(auth);
+              }
+            }
+          } else if (auth) {
+            await signInAnonymously(auth);
+          }
+        };
+
+        if (auth && !userId) {
+          handleSignIn();
+        }
+      }, [auth, userId]);
+
+      // Fetch todos from Firestore
+      useEffect(() => {
+        if (!db || !isAuthReady || !userId) return;
+
+        const collectionPath = isPublic 
+          ? `artifacts/${appId}/public/data/kanban_tasks`
+          : `artifacts/${appId}/users/${userId}/kanban_tasks`;
+        
+        const q = collection(db, collectionPath);
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const tasksData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setTodos(tasksData);
+          setMessage('');
+        }, (error) => {
+          console.error("Error fetching tasks:", error);
+          setMessage("Could not fetch tasks. Check permissions.");
+        });
+
+        return () => unsubscribe();
+      }, [db, isAuthReady, userId, isPublic]);
+
+      const handleAddTodo = async () => {
+        if (newTodo.trim() === '') return;
+        if (!db || !userId) {
+          setMessage("Database not ready. Please wait.");
+          return;
+        }
+        
+        try {
+          const collectionPath = isPublic 
+            ? `artifacts/${appId}/public/data/kanban_tasks`
+            : `artifacts/${appId}/users/${userId}/kanban_tasks`;
+          await addDoc(collection(db, collectionPath), {
+            text: newTodo,
+            status: 'new',
+            createdAt: new Date(),
+          });
+          setNewTodo('');
+          setMessage('');
+        } catch (error) {
+          console.error("Error adding todo:", error);
+          setMessage("Failed to add task.");
+        }
+      };
+
+      const handleUpdateTodoStatus = async (id, newStatus) => {
+        if (!db || !userId) {
+          setMessage("Database not ready. Please wait.");
+          return;
+        }
+
+        try {
+          const docPath = isPublic
+            ? `artifacts/${appId}/public/data/kanban_tasks/${id}`
+            : `artifacts/${appId}/users/${userId}/kanban_tasks/${id}`;
+          await updateDoc(doc(db, docPath), { status: newStatus });
+          setMessage('');
+        } catch (error) {
+          console.error("Error updating todo:", error);
+          setMessage("Failed to update task status.");
+        }
+      };
+
+      const handleDeleteTodo = async (id) => {
+        if (!db || !userId) {
+          setMessage("Database not ready. Please wait.");
+          return;
+        }
+
+        try {
+          const docPath = isPublic
+            ? `artifacts/${appId}/public/data/kanban_tasks/${id}`
+            : `artifacts/${appId}/users/${userId}/kanban_tasks/${id}`;
+          await deleteDoc(doc(db, docPath));
+          setMessage('');
+        } catch (error) {
+          console.error("Error deleting todo:", error);
+          setMessage("Failed to delete task.");
+        }
+      };
+
+      const handleEditStart = (todo) => {
+        setEditingTodoId(todo.id);
+        setEditingTodoText(todo.text);
+      };
+
+      const handleEditSave = async () => {
+        if (editingTodoText.trim() === '') {
+          setEditingTodoId(null);
+          return;
+        }
+        if (!db || !userId) {
+          setMessage("Database not ready. Please wait.");
+          return;
+        }
+
+        try {
+          const docPath = isPublic
+            ? `artifacts/${appId}/public/data/kanban_tasks/${editingTodoId}`
+            : `artifacts/${appId}/users/${userId}/kanban_tasks/${editingTodoId}`;
+          await updateDoc(doc(db, docPath), { text: editingTodoText });
+          setEditingTodoId(null);
+          setMessage('');
+        } catch (error) {
+          console.error("Error saving edits:", error);
+          setMessage("Failed to save edits.");
+        }
+      };
+
+      const handlePublicSwitch = () => {
+        if (!userId) {
+          setMessage("Please wait for authentication to complete.");
+          return;
+        }
+        setIsPublic(!isPublic);
+      };
+
+      // Styles based on theme
+      const headerClasses = 'text-xl font-bold mb-4';
+      const inputClasses = 'w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500';
+      const cardClasses = 'bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md border border-gray-200 dark:border-gray-700';
+
+      return (
+        <div className="min-h-screen flex flex-col items-center p-6 bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-xl w-full max-w-7xl">
+            <header className="flex flex-col md:flex-row justify-between items-center mb-6">
+              <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 dark:text-white mb-4 md:mb-0">
+                Kanban Board
+              </h1>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Public Mode</span>
+                  <label htmlFor="public-toggle" className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="public-toggle"
+                      className="sr-only peer"
+                      checked={isPublic}
+                      onChange={handlePublicSwitch}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+                {userId && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                    User ID: {userId}
+                  </p>
+                )}
+              </div>
+            </header>
+
+            {/* Input field */}
+            <div className="flex items-center space-x-4 mb-8">
+              <input
+                type="text"
+                className={inputClasses}
+                placeholder="Add a new task..."
+                value={newTodo}
+                onChange={(e) => setNewTodo(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddTodo()}
+              />
+              <button
+                onClick={handleAddTodo}
+                className="p-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-200"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
+            
+            {message && <p className="text-center text-red-500 mb-4">{message}</p>}
+
+            {/* Kanban columns */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {columns.map(column => (
+                <div key={column.id} className="p-4 bg-gray-200 dark:bg-gray-900 rounded-xl">
+                  <h2 className={`${headerClasses} text-gray-900 dark:text-white`}>{column.title}</h2>
+                  <div className="space-y-4 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                    {todos.filter(todo => todo.status === column.id).map(todo => (
+                      <div key={todo.id} className={cardClasses}>
+                        {editingTodoId === todo.id ? (
+                          <input
+                            type="text"
+                            value={editingTodoText}
+                            onChange={(e) => setEditingTodoText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
+                            className={inputClasses}
+                            autoFocus
+                          />
+                        ) : (
+                          <p className="text-gray-800 dark:text-gray-200">{todo.text}</p>
+                        )}
+                        
+                        <div className="flex justify-end space-x-2 mt-4">
+                          {editingTodoId === todo.id ? (
+                            <button onClick={handleEditSave} className="p-2 text-green-500 hover:text-green-600">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                            </button>
+                          ) : (
+                            <>
+                              <button onClick={() => handleEditStart(todo)} className="p-2 text-yellow-500 hover:text-yellow-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828zM15 11l-2 2h-4v-4l2-2 4 4z" /></svg>
+                              </button>
+                              <button onClick={() => handleDeleteTodo(todo.id)} className="p-2 text-red-500 hover:text-red-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                              </button>
+                              {column.id !== 'completed' && (
+                                <button onClick={() => handleUpdateTodoStatus(todo.id, 'completed')} className="p-2 text-blue-500 hover:text-blue-600">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4a1 1 0 000-1.414z" clipRule="evenodd" /></svg>
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {todos.filter(todo => todo.status === column.id).length === 0 && (
+                      <p className="text-center text-gray-400 dark:text-gray-600 text-sm">No tasks in this column.</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const domNode = document.getElementById('root');
+    const root = ReactDOM.createRoot(domNode);
+    root.render(<App />);
+  </script>
+</body>
+</html>
